@@ -1,0 +1,51 @@
+library(ggplot2)
+library(dplyr)
+
+data1 <- read.csv("applemobilitytrends-2022-04-09.csv", header = T)
+data2 <- read.csv("owid-covid-data.csv", header = T)
+
+
+#want to take a look at the apple map direction change request within Canada 
+country_dat <- data1 %>% filter(country == "Canada")
+region_dat <- data1 %>% filter(region == "Canada") %>% 
+  select(-one_of(c("geo_type", "alternative_name", "sub.region", "country"))) 
+
+canada_covid_data <- data2 %>% filter(location == "Canada")
+
+
+#first try on whole Canada trend 
+
+date <- region_dat[3:ncol(region_dat)]
+names(date) <- format(as.Date(names(date), format= "X%Y.%m.%d"), format = "%Y-%m-%d")
+date <- t(date)
+date <- as.data.frame(date)
+date <- rownames_to_column(date, var = "date")
+
+#categorize by type of transportation
+driving <- date %>% select(1,2)
+driving <- driving %>%
+  add_column(type = "driving",
+             .after = "V1")
+names(driving)[2] <- 'mobility'
+
+transit <- date %>% select(1,3)
+transit <- transit %>%
+  add_column(type = "transit", 
+             .after = "V2")
+names(transit)[2] <- 'mobility'
+
+walking <- date %>% select(1,4)
+walking <- walking %>%
+  add_column(type = "walking",
+             .after = "V3")
+names(walking)[2] <- 'mobility'
+
+transportation <- rbind(driving, transit, walking)
+
+#Plot the trend by category 
+
+ggplot(transportation, aes(x = date, y = mobility, colour = type)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "lm",color = "black")
+
+ggplot(canada_covid_data, aes(x = date, y = total_cases, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "lm",color = "black")
+
+ggplot(canada_covid_data, aes(x = date, y = life_expectancy, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "lm",color = "black")
