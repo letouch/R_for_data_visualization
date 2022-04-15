@@ -1,40 +1,102 @@
+#This project is used for Yang's assignmnet in Monash University. Please contanct me by ywan0440@gmail.com
+#import library
 library(ggplot2)
 library(dplyr)
+library(writexl)
+library(imputeTS)
+library(tibble)
+library(wordcloud2)
+library(scales)
+library(zoo)
+library(maptools)
+library(fmsb)
+library(lubridate)
+library(forecast)
 
+#read data
 data1 <- read.csv("applemobilitytrends-2022-04-09.csv", header = T)
 data2 <- read.csv("owid-covid-data.csv", header = T)
 
+#Data checking
+head(data1, n =5)
+tail(data1, n =5)
+head(data2, n =5)
+tail(data2, n =5)
 
-#want to take a look at the apple map direction change request within Canada 
-country_dat <- data1 %>% filter(country == "Canada")
-region_dat <- data1 %>% filter(region == "Canada") %>% 
+typeof(data1$X2020.01.13)
+is.numeric(data1$X2020.01.13)
+typeof(data1$geo_type)
+is.character(data1$geo_type)
+typeof(data2$total_cases)
+is.numeric(data2$total_cases)
+typeof(data2$location)
+is.character(data2$location)
+
+data1[1,c(7, ncol(data1))]
+data2[, 4]
+distinct_date_data2 <- distinct(data2, date)
+distinct_date_data2 <- as.Date(distinct_date_data2$date, format = "%Y-%m-%d")
+distinct_date_data2[order(as.Date(distinct_date_data2, format="%Y-%m-%d"))]
+
+#data cleaning
+is.na(data1[, 7:ncol(data1)])
+data1 <- na_replace(data1, 100)
+is.na(data2[, 7:ncol(data2)])
+
+#find the recovered countries and countries not recovered
+data1$recovered <- ifelse(data1$X2022.04.09 > data1$X2020.01.13, 'Y',ifelse(data1$X2022.04.09 < data1$X2020.01.13, 'N', 'E'))
+
+recovered <- data1 %>% filter(recovered == "Y")
+recovered <- recovered %>% filter(geo_type == "country/region")
+word_recovered <- recovered$region
+word_recovered <- gsub('\\n', ', ', word_recovered)
+count_recovered <- as.data.frame(table(unlist(strsplit(word_recovered, ', '))))
+set.seed(1000)
+wordcloud2(count_recovered, size = 0.1) 
+
+not_recovered <- data1 %>% filter(recovered == "N")
+not_recovered <- not_recovered %>% filter(geo_type == "country/region")
+word_unrecovered <- not_recovered$region
+word_unrecovered <- gsub('\\n', ', ', word_unrecovered)
+count_unrecovered <- as.data.frame(table(unlist(strsplit(word_unrecovered, ', '))))
+set.seed(1000)
+wordcloud2(count_unrecovered, size = 0.2)
+
+#highlight the countries with a map
+data(wrld_simpl)
+myCountries1 = wrld_simpl@data$NAME %in% recovered$region
+plot(wrld_simpl, col = c(gray(.80), "green")[myCountries1+1]) + title("Countries covered in Green represent recovered") 
+
+myCountries2 = wrld_simpl@data$NAME %in% not_recovered$region
+plot(wrld_simpl,  col = c(gray(.80), "red")[myCountries2+1]) + title("Countries covered in red represent not recovered")
+
+#Get the country's data
+country_data <- data1 %>% filter(region == "Italy") %>% 
   select(-one_of(c("geo_type", "alternative_name", "sub.region", "country"))) 
 
-canada_covid_data <- data2 %>% filter(location == "Canada")
+Italy_covid_data <- data2 %>% filter(location == "Italy")
 
-
-#first try on whole Canada trend 
-
-date <- region_dat[3:ncol(region_dat)]
-names(date) <- format(as.Date(names(date), format= "X%Y.%m.%d"), format = "%Y-%m-%d")
-date <- t(date)
-date <- as.data.frame(date)
-date <- rownames_to_column(date, var = "date")
+#Transform the data
+date_data1 <- country_data[3:ncol(country_data)]
+names(date_data1) <- format(as.Date(names(date_data1), format= "X%Y.%m.%d"), format = "%Y-%m-%d")
+date_data1 <- t(date_data1)
+date_data1 <- as.data.frame(date_data1)
+date_data1 <- rownames_to_column(date_data1, var = "date")
 
 #categorize by type of transportation
-driving <- date %>% select(1,2)
+driving <- date_data1 %>% select(1,2)
 driving <- driving %>%
   add_column(type = "driving",
              .after = "V1")
 names(driving)[2] <- 'mobility'
 
-transit <- date %>% select(1,3)
+transit <- date_data1 %>% select(1,3)
 transit <- transit %>%
   add_column(type = "transit", 
              .after = "V2")
 names(transit)[2] <- 'mobility'
 
-walking <- date %>% select(1,4)
+walking <- date_data1 %>% select(1,4)
 walking <- walking %>%
   add_column(type = "walking",
              .after = "V3")
@@ -43,9 +105,200 @@ names(walking)[2] <- 'mobility'
 transportation <- rbind(driving, transit, walking)
 
 #Plot the trend by category 
+p1 <- ggplot(transportation, aes(x = date, y = mobility, colour = type))+ geom_point() + geom_line()  
+p1 <- ggplot(transportation, aes(x = date, y = mobility, colour = type))+ geom_point()+ scale_y_continuous(limits=c(0,200)) + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black") 
+p1 + ggtitle( "The mobility trends in Australia") + xlab("From 13/01/2020 to 09/04/2022") + ylab ("Mobility compared to 13/01/2020")
 
-ggplot(transportation, aes(x = date, y = mobility, colour = type)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "lm",color = "black")
+#Plot detailed COVID data
+p2 <- ggplot(Australia_covid_data, aes(x = date, y = total_cases, colour = "red")) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black")
+p2 + ggtitle( "The total cases in Australia")  + xlab("From 01/01/2020 to 04/10/2022") + ylab ("The total cases") + scale_y_continuous(labels = comma)
 
-ggplot(canada_covid_data, aes(x = date, y = total_cases, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "lm",color = "black")
+#Plot detailed Italy COVID data
+p2_1 <- ggplot(Italy_covid_data, aes(x = date, y = total_cases, colour = "red")) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black")
+p2_1 + ggtitle( "The total cases in Italy")  + xlab("From 01/01/2020 to 04/10/2022") + ylab ("The total cases") + scale_y_continuous(labels = comma)
 
-ggplot(canada_covid_data, aes(x = date, y = life_expectancy, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "lm",color = "black")
+#convert day to quarter
+date_data1$date <- as.yearqtr(date_data1$date, format = "%Y-%m-%d")
+
+driving_quarter_data1 <- date_data1 %>% group_by(date) %>% summarise(mean = mean(V1))
+driving_quarter_data1 <- driving_quarter_data1 %>%
+  add_column(type = "driving",
+             .after = "mean")
+names(driving_quarter_data1)[3] <- 'mobility'
+
+transmit_quarter_data1 <- date_data1 %>% group_by(date) %>% summarise(mean = mean(V2))
+transmit_quarter_data1 <- transmit_quarter_data1 %>%
+  add_column(type = "transit",
+             .after = "mean")
+names(transmit_quarter_data1)[3] <- 'mobility'
+
+walking_quarter_data1 <- date_data1 %>% group_by(date) %>% summarise(mean = mean(V3))
+walking_quarter_data1 <- walking_quarter_data1 %>%
+  add_column(type = "walk",
+             .after = "mean")
+names(walking_quarter_data1)[3] <- 'mobility'
+
+quarter_transportation <- rbind(driving_quarter_data1, transmit_quarter_data1, walking_quarter_data1)
+
+p3 <- ggplot(quarter_transportation, aes(x = date, y = mean, colour = mobility))+ geom_point()+ scale_y_continuous(limits=c(0,200)) + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black") 
+p3 + ggtitle( "The mobility trends in Italy") + xlab("From 13/01/2020 to 09/04/2022") + ylab ("Mobility compared to 13/01/2020")
+
+data2$date <- as.yearqtr(data2$date, format = "%Y-%m-%d")
+Italy_covid_data <- data2 %>% filter(location == "Italy")
+p4 <- ggplot(Italy_covid_data, aes(x = date, y = total_cases, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black")
+p4 + ggtitle( "The total cases in Italy")  + xlab("From 01/01/2020 to 04/10/2022") + ylab ("The total cases") + scale_y_continuous(labels = comma)
+
+p4 <- ggplot(Australia_covid_data, aes(x = date, y = people_vaccinated, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black")
+p4 + ggtitle( "The total people vaccinated in Australia")  + xlab("From 01/01/2020 to 04/10/2022") + ylab ("The total people vaccinated") + scale_y_continuous(labels = comma)
+
+#Korea data
+Korea_covid_data <- data2 %>% filter(location == "South Korea")
+p5 <- ggplot(Korea_covid_data, aes(x = date, y = total_cases, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black")
+p5 + ggtitle( "The total cases in Korea")  + xlab("From 01/01/2020 to 04/10/2022") + ylab ("The total cases") + scale_y_continuous(labels = comma)
+
+p6 <- ggplot(Korea_covid_data, aes(x = date, y = people_vaccinated, colour = location)) + geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black")
+p6 + ggtitle( "The total people vaccinated in Korea")  + xlab("From 01/01/2020 to 04/10/2022") + ylab ("The total people vaccinated") + scale_y_continuous(labels = comma)
+
+country_data <- data1 %>% filter(region == "Republic of Korea") %>% 
+  select(-one_of(c("geo_type", "alternative_name", "sub.region", "country"))) 
+
+date_data1 <- country_data[3:ncol(country_data)]
+names(date_data1) <- format(as.Date(names(date_data1), format= "X%Y.%m.%d"), format = "%Y-%m-%d")
+date_data1 <- t(date_data1)
+date_data1 <- as.data.frame(date_data1)
+date_data1 <- rownames_to_column(date_data1, var = "date")
+date_data1$date <- as.yearqtr(date_data1$date, format = "%Y-%m-%d")
+
+driving <- date_data1 %>% select(1,2)
+driving <- driving %>%
+  add_column(type = "driving",
+             .after = "V1")
+names(driving)[2] <- 'mobility'
+
+walking <- date_data1 %>% select(1,3)
+walking <- walking %>%
+  add_column(type = "walking",
+             .after = "V2")
+names(walking)[2] <- 'mobility'
+
+transportation <- rbind(driving, walking)
+
+p7 <- ggplot(transportation, aes(x = date, y = mobility, colour = type))+ geom_point() + geom_line()  
+p7 <- ggplot(transportation, aes(x = date, y = mobility, colour = type))+ geom_point() + geom_line() + geom_smooth(aes(group = 1),method = "loess",color = "black") 
+p7 + ggtitle( "The mobility trends in Korea") + xlab("From 13/01/2020 to 09/04/2022") + ylab ("Mobility compared to 13/01/2020")
+
+#Comparing the death and GDP
+GDP <- data2 %>% group_by(location) %>% summarise(mean = mean(gdp_per_capita), across())
+
+ArrangedGDP <- GDP %>% arrange(desc(mean))
+
+newestdata <- ArrangedGDP %>% filter(date == "2022-04-10")
+
+selected_GDP_death <- newestdata[, c(1,2,15)]
+
+selected_GDP_death <- selected_GDP_death %>% na_if("") %>% na.omit
+
+selected_GDP_death = selected_GDP_death[-1]
+
+clusters = 5  
+
+fit  <- kmeans(selected_GDP_death, clusters, nstart = 25)
+
+selected_GDP_death$cluster <- factor(fit$cluster)
+
+p8 <- ggplot(data = selected_GDP_death, aes(x = total_deaths_per_million, y = mean, color = cluster)) + geom_point()
+p8 + ggtitle( "The relationshep between GDP and death rate") + xlab("Total death per million") + ylab ("Mean GDP")
+
+#Not recovered area data
+not_recovered <- not_recovered %>% filter(geo_type == "country/region")
+not_recovered_detailed <- data2[data2$location %in% not_recovered$region,] %>% filter(date == "2022-04-10")
+
+p9 <- ggplot(not_recovered_detailed, aes(x = total_deaths_per_million, y = gdp_per_capita, color = location)) + geom_point()
+p9 + ggtitle( "Not recovered areas GDP and death rate") + xlab("Total death per million") + ylab ("GDP")
+
+#Hong Kong
+p10 <- ggplot(not_recovered_detailed, aes(x = not_recovered_detailed$location, y = median_age, fill = location, color = location)) +   geom_bar(stat = "identity") 
+p10 + ggtitle( "Not recovered areas median age") + xlab("Area") + ylab ("Meidan age")
+
+#Check data
+#write_xlsx(recovered, "C:\\Users\\Yang\\Desktop\\Files\\data1.csv")
+
+#List recovered
+recovered$increase <- recovered$X2022.04.09 - recovered$X2020.01.13
+recovered_countries <- recovered %>% filter(geo_type == "country/region")
+recovered_countries <- arrange(recovered_countries, desc(increase))
+p11 <- ggplot(recovered_countries[1:20, ], aes(region, increase)) +  geom_bar(stat = "identity")
+p11 + ggtitle( "Top recovered areas") + xlab("Areas") + ylab ("Increased mobility compared to pre-COVID")
+
+#spider chart
+max_min <- data.frame(
+  total_cases_per_million = c(400000, 200000), total_deaths_per_million = c(3000, 0),
+  total_vaccinations_per_hundred = c(300, 200), people_fully_vaccinated_per_hundred = c(100, 50), hospital_beds_per_thousand = c(20, 0)
+)
+rownames(max_min) <- c("Max", "Min")
+Italy <- data2 %>% filter(location == "Italy", date == "2022-04-10") %>% select(c(total_cases_per_million, total_deaths_per_million, total_vaccinations_per_hundred, people_fully_vaccinated_per_hundred, hospital_beds_per_thousand))
+Italy_bind <- rbind(max_min, Italy)
+colnames(Italy_bind) <- c("total cases", "total death", "total vaccinations", "Fully vaccinated", "hospital beds")
+p12 <- radarchart(Italy_bind,
+           cglty = 1, cglcol = "gray",
+           pcol = 4, plwd = 2,
+           pfcol = rgb(0, 0.4, 1, 0.25)) 
+legend("right",
+       legend = c("Italy"),
+       bty = "n", pch = 20, col = "blue",
+       text.col = "grey25", pt.cex = 2)
+
+Germany <- data2 %>% filter(location == "Germany", date == "2022-04-10") %>% select(c(total_cases_per_million, total_deaths_per_million, total_vaccinations_per_hundred, people_fully_vaccinated_per_hundred, hospital_beds_per_thousand))
+Germany_bind <- rbind(max_min, Germany)
+colnames(Germany_bind) <- c("total cases", "total death", "total vaccinations", "Fully vaccinated", "hospital beds")
+radarchart(Germany_bind,
+           cglty = 1, cglcol = "gray",
+           pcol = 4, plwd = 2,
+           pfcol = rgb(0, 0.4, 1, 0.25))
+legend("right",
+       legend = c("Germany"),
+       bty = "n", pch = 20, col = "blue",
+       text.col = "grey25", pt.cex = 2)
+
+Korea <- data2 %>% filter(location == "South Korea", date == "2022-04-10") %>% select(c(total_cases_per_million, total_deaths_per_million, total_vaccinations_per_hundred, people_fully_vaccinated_per_hundred, hospital_beds_per_thousand))
+Korea_bind <- rbind(max_min, Korea)
+colnames(Korea_bind) <- c("total cases", "total death", "total vaccinations", "Fully vaccinated", "hospital beds")
+radarchart(Korea_bind,
+           cglty = 1, cglcol = "gray",
+           pcol = 4, plwd = 2,
+           pfcol = rgb(0, 0.4, 1, 0.25))
+legend("right",
+       legend = c("Korea"),
+       bty = "n", pch = 20, col = "blue",
+       text.col = "grey25", pt.cex = 2)
+
+Total_bind <- rbind(max_min, Korea, Germany, Italy)
+colnames(Total_bind) <- c("total cases", "total death", "total vaccinations", "Fully vaccinated", "hospital beds")
+
+areas <- c(rgb(1, 0, 0, 0.25),
+           rgb(0, 1, 0, 0.25),
+           rgb(0, 0, 1, 0.25))
+
+radarchart(Total_bind, cglty = 1,       # Grid line type
+           cglcol = "gray", # Grid line color
+           pcol = 2:4,      # Color for each line
+           plwd = 2,        # Width for each line
+           plty = 1,        # Line type for each line
+           pfcol = areas)
+
+legend("right",
+       legend = c("Korea", "Germany", "Italy"),
+       bty = "n", pch = 20, col = areas,
+       text.col = "grey25", pt.cex = 2)
+
+#Forecasting
+Australia_original <- data2  %>% filter(location == "Australia")%>% select (c(total_cases))
+
+mts <- ts(Australia_original[800:806,], start = decimal_date(ymd("2022-04-04")),
+          frequency = 365.25 / 1)
+
+fit <- auto.arima(mts)
+
+plot(forecast(fit, 10), xlab ="Daily Data",
+     ylab ="Total Positive Cases in Australia",
+     main ="COVID-19 Pandemic", col.main ="darkgreen")
